@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/cockroachdb/cockroach-go/crdb/crdbpgx"
+	"github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgx"
 	"github.com/jackc/pgx/v4"
 )
 
@@ -34,7 +34,7 @@ func transferFunds(ctx context.Context, tx pgx.Tx, from int, to int, amount int)
 }
 
 func main() {
-	config, err := pgx.ParseConfig("postgresql://maxroach@localhost:55344/bank?sslmode=disable")
+	config, err := pgx.ParseConfig("postgres://{username}:{password}@{hostname}:{port}/bank?sslmode=require")
 	if err != nil {
 		log.Fatal("error configuring the database: ", err)
 	}
