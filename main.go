@@ -34,7 +34,7 @@ func transferFunds(ctx context.Context, tx pgx.Tx, from int, to int, amount int)
 }
 
 func main() {
-	config, err := pgx.ParseConfig("postgres://{username}:{password}@{hostname}:{port}?sslmode=require")
+	config, err := pgx.ParseConfig("postgres://{username}:{password}@{hostname}:{port}/bank?sslmode=require")
 	if err != nil {
 		log.Fatal("error configuring the database: ", err)
 	}
