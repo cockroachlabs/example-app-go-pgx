@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgx"
 	"github.com/jackc/pgx/v4"
@@ -34,7 +35,7 @@ func transferFunds(ctx context.Context, tx pgx.Tx, from int, to int, amount int)
 }
 
 func main() {
-	config, err := pgx.ParseConfig("postgres://demo:{demo_password}@127.0.0.1:26257/bank?sslmode=require")
+	config, err := pgx.ParseConfig(os.ExpandEnv("postgres://{user}:{password}@free-tier.gcp-us-central1.cockroachlabs.cloud:26257/bank?sslmode=verify-full&sslrootcert=$HOME/certs/cc-ca.crt&options=--cluster={clustername}"))
 	if err != nil {
 		log.Fatal("error configuring the database: ", err)
 	}
