@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"strings"
 
 	"github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgx"
 	"github.com/google/uuid"
@@ -80,7 +79,7 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	log.Println("Enter a connection string: ")
 	scanner.Scan()
-	connstring := scanner.Text()
+	connstring := os.ExpandEnv(scanner.Text())
 
 	// Initialize the database with the SQL file
 	cmd := exec.Command("cockroach", "sql", "--url", connstring, "-f", "dbinit.sql")
@@ -93,7 +92,8 @@ func main() {
 	}
 
 	// Connect to the "bank" database
-	config, err := pgx.ParseConfig(os.ExpandEnv(strings.Replace(strings.Replace(connstring, "26257?", "26257/bank?", 1), "defaultdb?", "bank?", 1)))
+	config, err := pgx.ParseConfig(connstring)
+	config.Database = "bank"
 	if err != nil {
 		log.Fatal("error configuring the database: ", err)
 	}
