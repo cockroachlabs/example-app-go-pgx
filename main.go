@@ -1,15 +1,46 @@
 package main
 
 import (
+	"bufio"
 	"context"
-	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgx"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
 )
 
-func transferFunds(ctx context.Context, tx pgx.Tx, from int, to int, amount int) error {
+func insertRows(ctx context.Context, tx pgx.Tx, accts [4]uuid.UUID) error {
+	// Insert four rows into the "accounts" table.
+	log.Println("Creating new rows...")
+	if _, err := tx.Exec(ctx,
+		"INSERT INTO accounts (id, balance) VALUES ($1, $2), ($3, $4), ($5, $6), ($7, $8)", accts[0], 250, accts[1], 100, accts[2], 500, accts[3], 300); err != nil {
+		return err
+	}
+	return nil
+}
+
+func printBalances(conn *pgx.Conn) error {
+	rows, err := conn.Query(context.Background(), "SELECT id, balance FROM accounts")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var balance int
+		if err := rows.Scan(&id, &balance); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("%s: %d\n", id, balance)
+	}
+	return nil
+}
+
+func transferFunds(ctx context.Context, tx pgx.Tx, from uuid.UUID, to uuid.UUID, amount int) error {
 	// Read the balance.
 	var fromBalance int
 	if err := tx.QueryRow(ctx,
@@ -18,10 +49,11 @@ func transferFunds(ctx context.Context, tx pgx.Tx, from int, to int, amount int)
 	}
 
 	if fromBalance < amount {
-		return fmt.Errorf("insufficient funds")
+		log.Println("insufficient funds")
 	}
 
 	// Perform the transfer.
+	log.Printf("Transferring funds from account with ID %s to account with ID %s...", from, to)
 	if _, err := tx.Exec(ctx,
 		"UPDATE accounts SET balance = balance - $1 WHERE id = $2", amount, from); err != nil {
 		return err
@@ -33,53 +65,88 @@ func transferFunds(ctx context.Context, tx pgx.Tx, from int, to int, amount int)
 	return nil
 }
 
+func deleteRows(ctx context.Context, tx pgx.Tx, one uuid.UUID, two uuid.UUID) error {
+	// Delete two rows into the "accounts" table.
+	log.Printf("Deleting rows with IDs %s and %s...", one, two)
+	if _, err := tx.Exec(ctx,
+		"DELETE FROM accounts WHERE id IN ($1, $2)", one, two); err != nil {
+		return err
+	}
+	return nil
+}
+
 func main() {
-	config, err := pgx.ParseConfig("postgres://demo:{demo_password}@127.0.0.1:26257/bank?sslmode=require")
+	// Read in connection string
+	scanner := bufio.NewScanner(os.Stdin)
+	log.Println("Enter a connection string: ")
+	scanner.Scan()
+	connstring := scanner.Text()
+
+	// Initialize the database with the SQL file
+	cmd := exec.Command("cockroach", "sql", "--url", connstring, "-f", "dbinit.sql")
+	log.Println("Initializing bank database...")
+	err := cmd.Run()
+	if err != nil {
+		log.Fatal("error initializing the database: ", err)
+	} else {
+		log.Println("bank database initialized.")
+	}
+
+	// Connect to the "bank" database
+	config, err := pgx.ParseConfig(os.ExpandEnv(strings.Replace(strings.Replace(connstring, "26257?", "26257/bank?", 1), "defaultdb?", "bank?", 1)))
 	if err != nil {
 		log.Fatal("error configuring the database: ", err)
 	}
-
-	// Connect to the "bank" database.
 	conn, err := pgx.ConnectConfig(context.Background(), config)
 	if err != nil {
 		log.Fatal("error connecting to the database: ", err)
 	}
 	defer conn.Close(context.Background())
 
-	// Create the "accounts" table.
-	if _, err := conn.Exec(context.Background(),
-		"CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"); err != nil {
-		log.Fatal(err)
+	// Insert initial rows
+	var accounts [4]uuid.UUID
+	for i := 0; i < len(accounts); i++ {
+		accounts[i] = uuid.New()
 	}
 
-	// Insert two rows into the "accounts" table.
-	if _, err := conn.Exec(context.Background(),
-		"INSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)"); err != nil {
-		log.Fatal(err)
-	}
-
-	// Print out the balances.
-	rows, err := conn.Query(context.Background(), "SELECT id, balance FROM accounts")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-	fmt.Println("Initial balances:")
-	for rows.Next() {
-		var id, balance int
-		if err := rows.Scan(&id, &balance); err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("%d %d\n", id, balance)
-	}
-
-	// Run a transfer in a transaction.
 	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return transferFunds(context.Background(), tx, 1 /* from acct# */, 2 /* to acct# */, 100 /* amount */)
+		return insertRows(context.Background(), tx, accounts)
 	})
 	if err == nil {
-		fmt.Println("Success")
+		log.Println("New rows created.")
 	} else {
 		log.Fatal("error: ", err)
 	}
+
+	// Print out the balances
+	log.Println("Initial balances:")
+	printBalances(conn)
+
+	// Run a transfer
+	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return transferFunds(context.Background(), tx, accounts[2], accounts[1], 100)
+	})
+	if err == nil {
+		log.Println("Transfer successful.")
+	} else {
+		log.Fatal("error: ", err)
+	}
+
+	// Print out the balances
+	log.Println("Balances after transfer:")
+	printBalances(conn)
+
+	// Delete rows
+	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return deleteRows(context.Background(), tx, accounts[0], accounts[1])
+	})
+	if err == nil {
+		log.Println("Rows deleted.")
+	} else {
+		log.Fatal("error: ", err)
+	}
+
+	// Print out the balances
+	log.Println("Balances after deletion:")
+	printBalances(conn)
 }
