@@ -1,6 +1,4 @@
-# hello-world-go-pgx
-
-This repo has a "Hello World" Go application that uses the [pgx driver](https://pkg.go.dev/github.com/jackc/pgx) to talk to [CockroachDB](https://www.cockroachlabs.com/docs/stable/).
+This repo has a sample Go application that uses the [pgx driver](https://pkg.go.dev/github.com/jackc/pgx) to talk to [CockroachDB](https://www.cockroachlabs.com/docs/stable/).
 
 To run the code:
 
