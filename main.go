@@ -5,7 +5,6 @@ import (
 	"context"
 	"log"
 	"os"
-	"os/exec"
 
 	"github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgx"
 	"github.com/google/uuid"
@@ -80,16 +79,6 @@ func main() {
 	log.Println("Enter a connection string: ")
 	scanner.Scan()
 	connstring := os.ExpandEnv(scanner.Text())
-
-	// Initialize the database with the SQL file
-	cmd := exec.Command("cockroach", "sql", "--url", connstring, "-f", "dbinit.sql")
-	log.Println("Initializing bank database...")
-	err := cmd.Run()
-	if err != nil {
-		log.Fatal("error initializing the database: ", err)
-	} else {
-		log.Println("bank database initialized.")
-	}
 
 	// Connect to the "bank" database
 	config, err := pgx.ParseConfig(connstring)
