@@ -5,10 +5,26 @@ import (
 	"log"
 	"os"
 
-	"github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgx"
+	"github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgxv5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v5"
 )
+
+func initTable(ctx context.Context, tx pgx.Tx) error {
+	// Dropping existing table if it exists
+	log.Println("Drop existing accounts table if necessary.")
+	if _, err := tx.Exec(ctx, "DROP TABLE IF EXISTS accounts"); err != nil {
+		return err
+	}
+
+	// Create the accounts table
+	log.Println("Creating accounts table.")
+	if _, err := tx.Exec(ctx,
+		"CREATE TABLE accounts (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), balance INT8)"); err != nil {
+		return err
+	}
+	return nil
+}
 
 func insertRows(ctx context.Context, tx pgx.Tx, accts [4]uuid.UUID) error {
 	// Insert four rows into the "accounts" table.
@@ -84,6 +100,11 @@ func main() {
 		log.Fatal(err)
 	}
 	defer conn.Close(context.Background())
+
+	// Set up table
+	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return initTable(context.Background(), tx)
+	})
 
 	// Insert initial rows
 	var accounts [4]uuid.UUID
