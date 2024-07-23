@@ -5,10 +5,92 @@ import (
 	"log"
 	"os"
 
-	"github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgx"
+	crdbpgx "github.com/cockroachdb/cockroach-go/v2/crdb/crdbpgxv5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v5"
 )
+
+func main() {
+	// Read in connection string
+	config, err := pgx.ParseConfig(os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatalf("error parsing connection configuration: %v", err)
+	}
+	config.RuntimeParams["application_name"] = "$ docs_simplecrud_gopgx"
+	conn, err := pgx.ConnectConfig(context.Background(), config)
+	if err != nil {
+		log.Fatalf("error connecting to database: %v", err)
+	}
+	defer conn.Close(context.Background())
+
+	// Set up table
+	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return initTable(context.Background(), tx)
+	})
+	if err != nil {
+		log.Fatalf("error initializing table: %v", err)
+	}
+
+	// Insert initial rows
+	var accounts [4]uuid.UUID
+	for i := 0; i < len(accounts); i++ {
+		accounts[i] = uuid.New()
+	}
+
+	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return insertRows(context.Background(), tx, accounts)
+	})
+	if err != nil {
+		log.Fatalf("error insertin rows: %v", err)
+	}
+	log.Println("New rows created.")
+
+	// Print out the balances
+	log.Println("Initial balances:")
+	printBalances(conn)
+
+	// Run a transfer
+	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return transferFunds(context.Background(), tx, accounts[2], accounts[1], 100)
+	})
+	if err != nil {
+		log.Fatalf("error transferring funds: %v", err)
+	}
+	log.Println("Transfer successful.")
+
+	// Print out the balances
+	log.Println("Balances after transfer:")
+	printBalances(conn)
+
+	// Delete rows
+	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
+		return deleteRows(context.Background(), tx, accounts[0], accounts[1])
+	})
+	if err != nil {
+		log.Fatalf("error deleting rows: %v", err)
+	}
+	log.Println("Rows deleted.")
+
+	// Print out the balances
+	log.Println("Balances after deletion:")
+	printBalances(conn)
+}
+
+func initTable(ctx context.Context, tx pgx.Tx) error {
+	// Dropping existing table if it exists
+	log.Println("Drop existing accounts table if necessary.")
+	if _, err := tx.Exec(ctx, "DROP TABLE IF EXISTS accounts"); err != nil {
+		return err
+	}
+
+	// Create the accounts table
+	log.Println("Creating accounts table.")
+	if _, err := tx.Exec(ctx,
+		"CREATE TABLE accounts (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), balance INT8)"); err != nil {
+		return err
+	}
+	return nil
+}
 
 func insertRows(ctx context.Context, tx pgx.Tx, accts [4]uuid.UUID) error {
 	// Insert four rows into the "accounts" table.
@@ -70,65 +152,4 @@ func deleteRows(ctx context.Context, tx pgx.Tx, one uuid.UUID, two uuid.UUID) er
 		return err
 	}
 	return nil
-}
-
-func main() {
-	// Read in connection string
-	config, err := pgx.ParseConfig(os.Getenv("DATABASE_URL"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	config.RuntimeParams["application_name"] = "$ docs_simplecrud_gopgx"
-	conn, err := pgx.ConnectConfig(context.Background(), config)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close(context.Background())
-
-	// Insert initial rows
-	var accounts [4]uuid.UUID
-	for i := 0; i < len(accounts); i++ {
-		accounts[i] = uuid.New()
-	}
-
-	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return insertRows(context.Background(), tx, accounts)
-	})
-	if err == nil {
-		log.Println("New rows created.")
-	} else {
-		log.Fatal("error: ", err)
-	}
-
-	// Print out the balances
-	log.Println("Initial balances:")
-	printBalances(conn)
-
-	// Run a transfer
-	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return transferFunds(context.Background(), tx, accounts[2], accounts[1], 100)
-	})
-	if err == nil {
-		log.Println("Transfer successful.")
-	} else {
-		log.Fatal("error: ", err)
-	}
-
-	// Print out the balances
-	log.Println("Balances after transfer:")
-	printBalances(conn)
-
-	// Delete rows
-	err = crdbpgx.ExecuteTx(context.Background(), conn, pgx.TxOptions{}, func(tx pgx.Tx) error {
-		return deleteRows(context.Background(), tx, accounts[0], accounts[1])
-	})
-	if err == nil {
-		log.Println("Rows deleted.")
-	} else {
-		log.Fatal("error: ", err)
-	}
-
-	// Print out the balances
-	log.Println("Balances after deletion:")
-	printBalances(conn)
 }
